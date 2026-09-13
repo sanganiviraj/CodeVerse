@@ -31,15 +31,18 @@ export const InspectorPanel: React.FC<InspectorPanelProps> = ({
       className="glass-panel"
       style={{
         position: 'absolute',
-        top: '1rem',
+        top: '4.25rem',
         right: '1rem',
-        width: '360px',
-        maxHeight: 'calc(100% - 2rem)',
+        bottom: '1rem',
+        width: '380px',
+        maxHeight: 'calc(100% - 5.25rem)',
         overflowY: 'auto',
-        zIndex: 50,
+        zIndex: 45,
         padding: '1.25rem',
-        border: '1px solid rgba(56, 189, 248, 0.3)',
-        boxShadow: '0 20px 40px rgba(0, 0, 0, 0.6)',
+        border: '1px solid rgba(56, 189, 248, 0.35)',
+        boxShadow: '0 20px 50px rgba(0, 0, 0, 0.8), 0 0 25px rgba(56, 189, 248, 0.15)',
+        display: 'flex',
+        flexDirection: 'column',
       }}
     >
       {/* Header */}

@@ -1,4 +1,4 @@
-import React, { useMemo, useCallback } from 'react';
+import React, { useMemo, useCallback, useEffect, useRef } from 'react';
 import {
   ReactFlow,
   Background,
@@ -10,23 +10,30 @@ import {
   Edge,
   MarkerType,
   BackgroundVariant,
+  ReactFlowInstance,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import dagre from 'dagre';
 import { NormalizedGraphModel } from '../../core/graph/NormalizedGraphModel';
 import { GraphNode } from '../../core/types/graph';
 import { FileNode } from './FileNode';
+import { PointNode } from './PointNode';
+import { ViewportTransform } from '../interaction/interactionController';
 
 interface GraphCanvasProps {
   graphModel: NormalizedGraphModel;
   selectedNodeId?: string | null;
   searchQuery?: string;
   filterType?: 'all' | 'file' | 'directory' | 'module';
+  mode?: 'normal' | 'camera';
+  externalViewport?: ViewportTransform | null;
   onSelectNode: (node: GraphNode | null) => void;
+  onInitInstance?: (instance: ReactFlowInstance) => void;
 }
 
 const nodeTypes = {
   fileNode: FileNode,
+  pointNode: PointNode,
 };
 
 export const GraphCanvas: React.FC<GraphCanvasProps> = ({
@@ -34,14 +41,19 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
   selectedNodeId,
   searchQuery = '',
   filterType = 'all',
+  mode = 'normal',
+  externalViewport = null,
   onSelectNode,
+  onInitInstance,
 }) => {
+  const isCameraMode = mode === 'camera';
+  const flowInstanceRef = useRef<ReactFlowInstance | null>(null);
+
   // Convert NormalizedGraphModel to React Flow nodes and edges using Dagre Layout
   const { initialNodes, initialEdges } = useMemo(() => {
     const rawNodes = graphModel.getAllNodes();
     const rawEdges = graphModel.getAllEdges();
 
-    // Filter nodes if type filter applied
     const filteredNodes = rawNodes.filter((n) => {
       if (filterType !== 'all' && n.type !== filterType) return false;
       return true;
@@ -52,10 +64,10 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
     // Setup Dagre graph layout
     const dagreGraph = new dagre.graphlib.Graph();
     dagreGraph.setDefaultEdgeLabel(() => ({}));
-    dagreGraph.setGraph({ rankdir: 'LR', nodesep: 50, ranksep: 100 });
+    dagreGraph.setGraph({ rankdir: 'LR', nodesep: isCameraMode ? 40 : 50, ranksep: isCameraMode ? 80 : 100 });
 
-    const nodeWidth = 220;
-    const nodeHeight = 75;
+    const nodeWidth = isCameraMode ? 120 : 220;
+    const nodeHeight = isCameraMode ? 50 : 75;
 
     filteredNodes.forEach((node) => {
       dagreGraph.setNode(node.id, { width: nodeWidth, height: nodeHeight });
@@ -81,7 +93,7 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
 
       return {
         id: node.id,
-        type: 'fileNode',
+        type: isCameraMode ? 'pointNode' : 'fileNode',
         position: {
           x: (nodeWithPos?.x || 0) - nodeWidth / 2,
           y: (nodeWithPos?.y || 0) - nodeHeight / 2,
@@ -105,23 +117,51 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
         target: edge.target,
         animated: !!edge.isDynamic || !!isConnectedToSelected,
         style: {
-          stroke: isConnectedToSelected ? '#38bdf8' : 'rgba(148, 163, 184, 0.35)',
-          strokeWidth: isConnectedToSelected ? 2.5 : 1.5,
+          stroke: isConnectedToSelected
+            ? '#38bdf8'
+            : isCameraMode
+            ? 'rgba(255, 255, 255, 0.45)'
+            : 'rgba(148, 163, 184, 0.35)',
+          strokeWidth: isConnectedToSelected ? 2.5 : isCameraMode ? 1.5 : 1.5,
         },
         markerEnd: {
           type: MarkerType.ArrowClosed,
-          color: isConnectedToSelected ? '#38bdf8' : 'rgba(148, 163, 184, 0.5)',
-          width: 16,
-          height: 16,
+          color: isConnectedToSelected
+            ? '#38bdf8'
+            : isCameraMode
+            ? 'rgba(255, 255, 255, 0.6)'
+            : 'rgba(148, 163, 184, 0.5)',
+          width: 14,
+          height: 14,
         },
       };
     });
 
     return { initialNodes: flowNodes, initialEdges: flowEdges };
-  }, [graphModel, selectedNodeId, searchQuery, filterType]);
+  }, [graphModel, selectedNodeId, searchQuery, filterType, isCameraMode]);
 
-  const [nodes, , onNodesChange] = useNodesState(initialNodes);
-  const [edges, , onEdgesChange] = useEdgesState(initialEdges);
+  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
+
+  useEffect(() => {
+    setNodes(initialNodes);
+    setEdges(initialEdges);
+  }, [initialNodes, initialEdges, setNodes, setEdges]);
+
+  // Sync external hand gesture viewport adjustments
+  useEffect(() => {
+    if (externalViewport && flowInstanceRef.current) {
+      flowInstanceRef.current.setViewport(externalViewport);
+    }
+  }, [externalViewport]);
+
+  const handleInit = useCallback(
+    (instance: ReactFlowInstance) => {
+      flowInstanceRef.current = instance;
+      onInitInstance?.(instance);
+    },
+    [onInitInstance]
+  );
 
   const handleNodeClick = useCallback(
     (_: React.MouseEvent, node: Node) => {
@@ -136,7 +176,14 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
   }, [onSelectNode]);
 
   return (
-    <div style={{ width: '100%', height: '100%', position: 'relative', background: '#07090e' }}>
+    <div
+      style={{
+        width: '100%',
+        height: '100%',
+        position: 'relative',
+        background: isCameraMode ? 'transparent' : '#07090e',
+      }}
+    >
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -145,12 +192,16 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
         onEdgesChange={onEdgesChange}
         onNodeClick={handleNodeClick}
         onPaneClick={handlePaneClick}
+        onInit={handleInit}
         fitView
-        fitViewOptions={{ padding: 0.2 }}
+        fitViewOptions={{ padding: isCameraMode ? 0.35 : 0.2 }}
         minZoom={0.1}
         maxZoom={2.5}
+        style={{ background: 'transparent' }}
       >
-        <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="rgba(255, 255, 255, 0.07)" />
+        {!isCameraMode && (
+          <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="rgba(255, 255, 255, 0.07)" />
+        )}
         <Controls showInteractive={false} position="bottom-left" />
         <MiniMap
           nodeColor={() => '#38bdf8'}
